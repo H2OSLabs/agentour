@@ -1,2 +1,2 @@
-# agentour
+# Agentour
 Decentralized Agent Collaborative Platform

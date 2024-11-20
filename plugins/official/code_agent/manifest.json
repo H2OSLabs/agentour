@@ -1,0 +1,26 @@
+{
+  "id": "code_agent",
+  "name": "Code Generation Agent",
+  "version": "1.0.0",
+  "type": "agent",
+  "description": "An AI agent for code generation and review",
+  "author": "Agentour Team",
+  "license": "MIT",
+  "elixir": {
+    "module": "Agentour.Plugins.CodeAgent",
+    "dependencies": {
+      "openai": "~> 0.5.0"
+    }
+  },
+  "python": {
+    "module": "code_generator",
+    "requirements": [
+      "openai==1.0.0",
+      "transformers==4.30.0"
+    ]
+  },
+  "assets": {
+    "components": ["CodeEditor", "ReviewPanel"],
+    "styles": ["code_agent.css"]
+  }
+} 
