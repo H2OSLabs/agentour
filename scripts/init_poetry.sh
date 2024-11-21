@@ -4,7 +4,7 @@ set -e
 echo "Initializing Python environment..."
 
 # 确保在项目根目录
-cd priv/python
+cd python
 
 # 初始化 poetry 项目
 poetry init \
@@ -12,11 +12,6 @@ poetry init \
     --description "Python components for Agentour" \
     --author "Agentour Team" \
     --python "^3.11" \
-    --dependency "openai" \
-    --dependency "anthropic" \
-    --dependency "transformers" \
-    --dependency "torch" \
-    --dependency "pyrlang" \
     --dev-dependency "pytest" \
     --dev-dependency "black" \
     --dev-dependency "isort" \

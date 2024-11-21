@@ -1,0 +1,18 @@
+<.header>
+  Edit Agent <%= @agent.name %>
+  <:subtitle>Use this form to update your agent's settings.</:subtitle>
+</.header>
+
+<div class="max-w-2xl">
+  <.live_component
+    module={AgentourWeb.AgentLive.FormComponent}
+    id={@agent.id}
+    title={@page_title}
+    action={@live_action}
+    agent={@agent}
+    current_user={@current_user}
+    patch={~p"/agents/#{@agent}"}
+  />
+</div>
+
+<.back navigate={~p"/agents/#{@agent}"}>Back to agent</.back>

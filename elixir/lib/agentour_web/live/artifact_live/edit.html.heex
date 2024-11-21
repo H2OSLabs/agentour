@@ -1,0 +1,17 @@
+<.header>
+  Edit Artifact <%= @artifact.name %>
+  <:subtitle>Use this form to update your artifact.</:subtitle>
+</.header>
+
+<div class="max-w-2xl">
+  <.live_component
+    module={AgentourWeb.ArtifactLive.FormComponent}
+    id={@artifact.id}
+    title={@page_title}
+    action={@live_action}
+    artifact={@artifact}
+    patch={~p"/artifacts/#{@artifact}"}
+  />
+</div>
+
+<.back navigate={~p"/artifacts/#{@artifact}"}>Back to artifact</.back>

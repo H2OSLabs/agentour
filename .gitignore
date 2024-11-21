@@ -192,8 +192,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+python/lib/
+python/lib64/
 parts/
 sdist/
 var/
@@ -406,5 +406,15 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+# Secrets and environment variables
+SECRETS
+.env
+.env.*
+!.env.example
+
+# Database
+*.sqlite3
+*.db
 
 # End of https://www.toptal.com/developers/gitignore/api/elixir,phoenix,react,python,macos,windows,linux,visualstudiocode,jetbrains+all

@@ -1,0 +1,58 @@
+<header class="px-4 sm:px-6 lg:px-8">
+  <div class="flex items-center justify-between border-b border-zinc-100 py-3">
+    <div class="flex items-center gap-4">
+      <a href="/">
+        <img src={~p"/images/logo.svg"} width="36" />
+      </a>
+      <span class="text-xl font-semibold">Agentour</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <%= if @current_user do %>
+        <div class="flex items-center gap-2">
+          <span class="text-sm"><%= @current_user.email %></span>
+          <.link
+            href={~p"/auth/logout"}
+            class="rounded-lg bg-zinc-100 px-2 py-1 text-sm font-semibold hover:bg-zinc-200/80"
+          >
+            Sign out
+          </.link>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</header>
+
+<div class="flex h-[calc(100vh-4rem)]">
+  <%= if @current_user do %>
+    <aside class="w-64 bg-zinc-50 p-4">
+      <nav class="space-y-2">
+        <.link
+          href={~p"/profile"}
+          class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-zinc-100"
+        >
+          <.icon name="hero-user" class="h-5 w-5" />
+          <span>Profile</span>
+        </.link>
+        <.link
+          href={~p"/sessions"}
+          class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-zinc-100"
+        >
+          <.icon name="hero-chat-bubble-left-right" class="h-5 w-5" />
+          <span>Sessions</span>
+        </.link>
+        <.link
+          href={~p"/agents"}
+          class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-zinc-100"
+        >
+          <.icon name="hero-user-group" class="h-5 w-5" />
+          <span>Agents</span>
+        </.link>
+      </nav>
+    </aside>
+  <% end %>
+
+  <main class="flex-1 overflow-y-auto p-8">
+    <.flash_group flash={@flash} />
+    <%= @inner_content %>
+  </main>
+</div>

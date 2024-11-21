@@ -1,0 +1,18 @@
+<div>
+  <.header>
+    New Agent
+    <:subtitle>Create a new agent to help with your tasks.</:subtitle>
+  </.header>
+
+  <.live_component
+    module={AgentourWeb.AgentLive.FormComponent}
+    id={:new}
+    title="New Agent"
+    action={:new}
+    agent={@agent}
+    current_user={@current_user}
+    patch={@patch}
+  />
+</div>
+
+<.back navigate={~p"/agents"}>Back to agents</.back>
