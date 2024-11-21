@@ -4,5 +4,25 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {},
+	"extensions": {
+		"recommendations": [
+			"jakebecker.elixir-ls",
+			"phoenixframework.phoenix",
+			"bradlc.vscode-tailwindcss",
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"dbaeumer.vscode-eslint",
+			"esbenp.prettier-vscode",
+			"eamodio.gitlens",
+			"ms-vsliveshare.vsliveshare",
+			"streetsidesoftware.code-spell-checker",
+			"gruntfuggly.todo-tree",
+			"christian-kohler.path-intellisense",
+			"formulahendry.auto-rename-tag",
+			"ckolkman.vscode-postgres",
+			"mtxr.sqltools",
+			"mikestead.dotenv",
+		]
+	}
 }
