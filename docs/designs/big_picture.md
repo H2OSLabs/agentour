@@ -1,71 +1,445 @@
 # Agentour项目设计
 
 ## 1. 项目设计
-项目是一个Agent协作平台，主要功能是提供一个平台，供Agent进行协作。产品形态是一个协作编辑软件，人类与AI相当于在同一个编辑器里协作编辑的作者。包括以下三个核心概念：
-- Agent：Agent是协作的参与者，可以是人类或AI，或者是人类与AI的集合体。
-- Session：一个Session代表一个正在进行的协作任务，它指定了允许被参与其中的Agent。
-- Artifact：Artifact是协作的编辑对象，可以是一个文件或更复杂的代码。
+项目是一个Agent协作平台，主要功能是提供一个平台，供Agent进行协作。产品形态是一个协作编辑软件，人类与AI相当于在同一个编辑器里协作编辑的作者。包括以下两个核心概念：
 
-一个典型的使用流程包括三个主要环节：
-1. 用户注册和初始化流程
-2. Session创建和协作流程
-3. Artifact处理流程
+- Agent：协作的参与者，包括以下三种类型：
+  - HumanAgent：人类用户
+  - MachineAgent：AI代理
+  - CollectiveAgent：人类和AI的集合体，通过组合多个Agent形成新的能力
+- Artifact：协作的对象，是一个图结构，其中的节点可以是代码、文件、会话等任何可协作的内容。节点之间通过Link建立关系，形成知识图谱。
 
-### 用户注册和初始化流程：
-人类用户需要登陆注册，并添加个人信息。在人类注册加入后，会有一个默认属于个人的Session，并在其中创建自己的Agent。
+### 1.1 统一数据结构定义
 
-```mermaid
----
-title: 用户注册和初始化流程
----
-flowchart TD
-    A[开始] --> B[用户注册/登录]
-    B --> C[创建个人信息]
-    C --> D[自动创建默认Session]
-    D --> E[在默认Session中创建个人Agent]
-    E --> F[结束]
+我们采用 GraphQL Schema 作为统一的数据定义方案，通过工具链自动生成各平台所需的代码。为了优化性能和简化实现，我们在具体实现时采用ID引用而不是完整对象嵌套。
+
+#### GraphQL Schema 定义
+```graphql
+scalar JSON
+scalar DateTime
+
+"""
+Agent 代表系统中的参与者，可以是人类用户、AI 或它们的组合
+"""
+type Agent {
+  id: ID!
+  type: AgentType!
+  name: String!
+  metadata: JSON!
+  preferences: Artifact!     # 存储Agent偏好设置的Artifact
+  capabilities: [Capability!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  parentAgent: Agent        # 如果是CollectiveAgent，指向父Agent
+  childAgents: [Agent!]     # 如果是CollectiveAgent，包含子Agent列表
+}
+
+"""
+Agent 的类型枚举
+"""
+enum AgentType {
+  HUMAN
+  MACHINE
+  COLLECTIVE
+}
+
+"""
+Agent 具备的能力，可以通过插件系统扩展
+"""
+type Capability {
+  name: String!
+  description: String!
+  parameters: JSON!
+  active: Boolean!
+  source: String!          # 能力来源，可以是内置或插件ID
+}
+
+"""
+Artifact 是系统中的协作对象，可以是代码、文档、会话等
+每个Artifact都是知识图谱中的一个节点
+"""
+type Artifact {
+  id: ID!
+  belong: Agent!
+  content: Content!
+  links: [Link!]!
+  metadata: JSON!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  version: Int!
+  permissions: [Permission!]!
+  type: String!           # Artifact类型，用于确定展示方式
+  tags: [String!]!        # 用于分类和检索
+}
+
+"""
+权限定义，支持继承和传播
+"""
+type Permission {
+  agent: Agent!
+  access: AccessLevel!
+  grantedAt: DateTime!
+  grantedBy: Agent!
+  inherited: Boolean!     # 是否是继承的权限
+  propagate: Boolean!    # 是否向下传播权限
+}
+
+enum AccessLevel {
+  READ
+  WRITE
+  ADMIN
+}
+
+"""
+Artifact 的具体内容
+"""
+type Content {
+  rawContent: String!
+  shows: [Show!]!
+  version: Int!
+  history: [ContentVersion!]!
+}
+
+"""
+内容的历史版本
+"""
+type ContentVersion {
+  version: Int!
+  content: String!
+  updatedAt: DateTime!
+  updatedBy: Agent!
+  comment: String        # 版本说明
+}
+
+"""
+内容的展示方式，可以通过插件系统扩展
+"""
+type Show {
+  type: String!          # 展示类型
+  renderer: String!      # 渲染器，可以是内置或插件ID
+  config: JSON!          # 渲染配置
+  priority: Int!         # 优先级
+  compatibility: [String!]! # 兼容的客户端类型
+}
+
+"""
+Artifact 之间的关联，形成知识图谱
+"""
+type Link {
+  id: ID!
+  source: Artifact!
+  target: Artifact!
+  type: String!          # 关系类型
+  metadata: JSON!        # 关系元数据
+  createdAt: DateTime!
+  createdBy: Agent!
+  bidirectional: Boolean! # 是否是双向关系
+}
+
+# 查询接口
+type Query {
+  # Agent 相关查询
+  agent(id: ID!): Agent
+  agents(filter: AgentFilter): [Agent!]!
+  myAgent: Agent!
+  
+  # Artifact 相关查询
+  artifact(id: ID!): Artifact
+  artifacts(filter: ArtifactFilter): [Artifact!]!
+  searchArtifacts(query: String!, filter: ArtifactFilter): [Artifact!]!
+  
+  # 系统相关查询
+  availableRenderers: [String!]!
+  systemStatus: SystemStatus!
+}
+
+# 变更接口
+type Mutation {
+  # Agent 操作
+  createAgent(input: CreateAgentInput!): Agent!
+  updateAgent(id: ID!, input: UpdateAgentInput!): Agent!
+  deleteAgent(id: ID!): Boolean!
+  updateCapabilities(id: ID!, capabilities: [String!]!): Agent!
+  
+  # Artifact 操作
+  createArtifact(input: CreateArtifactInput!): Artifact!
+  updateArtifact(id: ID!, input: UpdateArtifactInput!): Artifact!
+  deleteArtifact(id: ID!): Boolean!
+  updatePermissions(id: ID!, permissions: [PermissionInput!]!): Artifact!
+  
+  # Link 操作
+  createLink(input: CreateLinkInput!): Link!
+  deleteLink(id: ID!): Boolean!
+  
+  # 内容操作
+  updateContent(id: ID!, content: String!): Artifact!
+  revertContent(id: ID!, version: Int!): Artifact!
+}
+
+# 订阅接口
+type Subscription {
+  artifactUpdated(id: ID!): ArtifactUpdateEvent!
+  agentStatusChanged(id: ID!): AgentStatusEvent!
+  systemAlert: SystemAlert!
+}
+
+# 事件和状态类型
+type ArtifactUpdateEvent {
+  artifact: Artifact!
+  updateType: UpdateType!
+  timestamp: DateTime!
+  agent: Agent!
+}
+
+type AgentStatusEvent {
+  agent: Agent!
+  status: AgentStatus!
+  timestamp: DateTime!
+}
+
+type SystemStatus {
+  activeAgents: Int!
+  totalArtifacts: Int!
+  uptime: Int!
+  version: String!
+}
+
+type SystemAlert {
+  level: AlertLevel!
+  message: String!
+  timestamp: DateTime!
+}
+
+# 枚举类型
+enum UpdateType {
+  CREATED
+  UPDATED
+  DELETED
+  PERMISSION_CHANGED
+  LINKED
+  UNLINKED
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  BUSY
+  ERROR
+}
+
+enum AlertLevel {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+# 输入类型
+input AgentFilter {
+  types: [AgentType!]
+  capabilities: [String!]
+  status: AgentStatus
+  createdAfter: DateTime
+  updatedAfter: DateTime
+}
+
+input ArtifactFilter {
+  belongTo: ID
+  types: [String!]
+  createdAfter: DateTime
+  updatedAfter: DateTime
+  hasPermission: AccessLevel
+}
+
+input CreateAgentInput {
+  type: AgentType!
+  name: String!
+  metadata: JSON
+  capabilities: [String!]
+}
+
+input UpdateAgentInput {
+  name: String
+  metadata: JSON
+  capabilities: [String!]
+}
+
+input CreateArtifactInput {
+  content: String!
+  metadata: JSON
+  shows: [ShowInput!]
+}
+
+input UpdateArtifactInput {
+  content: String
+  metadata: JSON
+  shows: [ShowInput!]
+}
+
+input ShowInput {
+  type: String!
+  renderer: String!
+  config: JSON!
+  priority: Int!
+}
+
+input PermissionInput {
+  agentId: ID!
+  access: AccessLevel!
+}
+
+input CreateLinkInput {
+  sourceId: ID!
+  targetId: ID!
+  type: String!
+  metadata: JSON
+}
 ```
 
-### Session创建和协作流程
-一个用户创建了一个Session，并指定了允许参与的Agent，或是在该Session中创建新的Agent。
+### 1.2 Elixir数据结构
 
-```mermaid
----
-title: Session创建和协作流程
----
-flowchart TD
-    A[开始] --> B[用户创建新Session]
-    B --> C[指定参与Agent]
-    C --> D[导入Artifact]
-    D --> E{选择操作}
-    E -->|邀请其他Agent| F[发送邀请]
-    E -->|开始编辑| G[根据Agent类型展示不同视图]
-    G -->|人类用户| H[代码编辑器视图/富文本编辑器视图/……]
-    G -->|AI Agent| I[聊天流视图/数据库视图/……]
-    F --> J[等待Agent加入]
-    J --> G
-    H --> K[协作编辑]
-    I --> K
-    K --> L[结束]
+#### Agent数据结构
+```elixir
+defmodule Agent do
+  @type t :: %Agent{
+    id: String.t(),           # 全局唯一标识
+    type: atom(),             # :human | :machine | :collective
+    name: String.t(),         # 显示名称
+    metadata: map(),          # 元数据
+    preferences: String.t(),  # 对应的preference artifact的id
+    capabilities: [Capability.t()], # agent具备的能力列表
+    created_at: DateTime.t(), # 创建时间
+    updated_at: DateTime.t(), # 更新时间
+    parent_agent: String.t(), # 如果是CollectiveAgent，指向父Agent的id
+    child_agents: [String.t()] # 如果是CollectiveAgent，包含子Agent的id列表
+  }
+end
+
+defmodule Capability do
+  @type t :: %Capability{
+    name: String.t(),        # 能力名称
+    description: String.t(), # 能力描述
+    parameters: map(),       # 能力参数
+    active: boolean(),       # 是否激活
+    source: String.t()       # 能力来源，可以是内置或插件ID
+  }
+end
 ```
 
-### Artifact处理流程
-在一个Session中，用户或者Agent创建了一个Artifact后，Session中的Agent可参与协作编辑。协作过程中，根据每个用户/Agent的需要，Artifact的展示会有不同。例如，对于人类编辑者，一个Artifact可能被展示为代码编辑器，而对于AI编辑者，一个Artifact可能被展示成一个聊天流。
+#### Artifact数据结构
+```elixir
+defmodule Artifact do
+  @type t :: %Artifact{
+    id: String.t(),          # 全局唯一标识
+    belong: String.t(),      # 所属agent的id
+    content: Content.t(),    # 内容
+    links: [Link.t()],       # 与其他artifact的连接
+    metadata: map(),         # 元数据
+    created_at: DateTime.t(), # 创建时间
+    updated_at: DateTime.t(), # 更新时间
+    version: integer(),      # 版本号
+    permissions: [Permission.t()], # 权限列表
+    type: String.t(),        # Artifact类型，用于确定展示方式
+    tags: [String.t()]       # 用于分类和检索
+  }
+end
+
+defmodule Content do
+  @type t :: %Content{
+    raw_content: String.t(),    # 原始内容
+    shows: [Show.t()],         # 可用的展示方式列表
+    version: integer(),        # 版本号
+    history: [ContentVersion.t()] # 历史版本
+  }
+end
+
+defmodule ContentVersion do
+  @type t :: %ContentVersion{
+    version: integer(),       # 版本号
+    content: String.t(),      # 内容
+    updated_at: DateTime.t(), # 更新时间
+    updated_by: String.t(),   # 更新者id
+    comment: String.t()       # 版本说明
+  }
+end
+
+defmodule Show do
+  @type t :: %Show{
+    type: String.t(),        # 展示类型
+    renderer: String.t(),    # 渲染器，可以是内置或插件ID
+    config: map(),           # 渲染配置
+    priority: integer(),     # 优先级
+    compatibility: [String.t()] # 兼容的客户端类型
+  }
+end
+
+defmodule Link do
+  @type t :: %Link{
+    id: String.t(),          # 链接id
+    source: String.t(),      # 源artifact的id
+    target: String.t(),      # 目标artifact的id
+    type: String.t(),        # 关系类型
+    metadata: map(),         # 关系元数据
+    created_at: DateTime.t(), # 创建时间
+    created_by: String.t(),   # 创建者id
+    bidirectional: boolean() # 是否是双向关系
+  }
+end
+
+defmodule Permission do
+  @type t :: %Permission{
+    agent: String.t(),       # agent id
+    access: atom(),          # :read | :write | :admin
+    granted_at: DateTime.t(), # 授权时间
+    granted_by: String.t(),   # 授权者id
+    inherited: boolean(),    # 是否是继承的权限
+    propagate: boolean()     # 是否向下传播权限
+  }
+end
+```
+
+### 1.2 工作流程
+
+一个典型的使用流程包括两个主要环节：
+1. Agent初始化流程
+2. Artifact协作流程
+
+#### Agent初始化流程：
+当新的Agent（无论是人类还是AI）加入平台时，系统会：
+1. 创建Agent实例
+2. 创建该Agent的preference artifact，用于存储其偏好设置
+3. 根据Agent类型初始化其capabilities
 
 ```mermaid
 ---
-title: Artifact处理流程
+title: Agent初始化流程
 ---
 flowchart TD
-    A[Artifact导入] --> B{判断Agent类型/偏好+判断当前上下文}
-    B -->|代码文件| C[代码编辑器展示]
-    B -->|文本文件| D[富文本编辑器展示]
-    B -->|其他类型| E[自定义展示插件]
-    C --> F[实时协作编辑]
-    D --> F
-    E --> F
-    F --> G[保存更新]
-    G --> H[同步到其他Agent]
+    A[开始] --> B[创建Agent实例]
+    B --> C[创建Preference Artifact]
+    C --> D[初始化Capabilities]
+    D --> E[结束]
+```
+
+#### Artifact协作流程
+Agent可以创建或加入已有的Artifact进行协作。系统会根据Agent的preference来决定如何展示Artifact。
+
+```mermaid
+---
+title: Artifact协作流程
+---
+flowchart TD
+    A[开始] --> B[Agent创建/加入Artifact]
+    B --> C[读取Agent Preference]
+    C --> D[选择合适的Show方式]
+    D --> E{协作操作}
+    E -->|创建内容| F[创建新节点]
+    E -->|修改内容| G[更新节点]
+    E -->|建立关联| H[创建Link]
+    F --> I[同步到其他Agent]
+    G --> I
+    H --> I
+    I --> J[结束]
 ```
 
 ## 2. 项目选型
@@ -140,25 +514,27 @@ agentour/
 │       └── example_plugins/
 ├── lib/                                         # 主要源代码目录
 │   ├── agentour/                         # 业务逻辑目录
-│   │   ├── accounts/                    # 用户账户相关上下文
-│   │   │   ├── user.ex                  # 用户模型
-│   │   │   └── profile.ex              # 用户档案模型
-│   │   │
 │   │   ├── agents/                      # Agent 相关上下文
-│   │   │   ├── agent.ex               # Agent 基础模型，包括人类、AI 或者混合体共用同样的Agent行为定义
-│   │   │   └── agent_registry.ex # Agent 注册表
-│   │   │
-│   │   ├── sessions/       # Session 相关上下文
-│   │   │   ├── session.ex  # Session 模型
-│   │   │   └── participant.ex    # 参与者模型
+│   │   │   ├── agent.ex               # Agent 基础模型，统一人类、AI和集体的定义
+│   │   │   ├── capabilities.ex        # Agent 能力定义
+│   │   │   ├── preferences.ex         # Agent 偏好设置
+│   │   │   └── registry.ex            # Agent 注册表
 │   │   │
 │   │   ├── artifacts/      # Artifact 相关上下文
-│   │   │   ├── artifact.ex # Artifact 模型
-│   │   │   └── version.ex  # 文档版本控制
+│   │   │   ├── artifact.ex # Artifact 基础模型
+│   │   │   ├── content.ex  # 内容管理
+│   │   │   ├── version.ex  # 版本控制
+│   │   │   ├── link.ex     # 关系管理
+│   │   │   ├── show.ex     # 展示方式
+│   │   │   └── permission.ex # 权限管理
+│   │   │
+│   │   ├── auth/           # 认证相关上下文
+│   │   │   ├── guardian.ex # Guardian 配置
+│   │   │   └── token.ex    # Token 管理
 │   │   │
 │   │   └── plugins/        # 插件系统
-│   │   │   ├── plugin.ex   # 插件基础模型
-│   │   │   └── registry.ex # 插件注册表
+│   │       ├── plugin.ex   # 插件基础模型
+│   │       └── registry.ex # 插件注册表
 │   │   │
 │   │   ├── python/           # Python 相关的 Elixir 接口
 │   │   │   ├── client.ex     # Python 进程管理和通信客户端
@@ -174,7 +550,6 @@ agentour/
 │   │   │
 │   │   ├── controllers/    # 控制器目录
 │   │   ├── live/          # LiveView 组件目录
-│   │   │   ├── session_live/     # Session 相关组件
 │   │   │   ├── artifact_live/    # Artifact 相关组件
 │   │   │   └── agent_live/       # Agent 相关组件
 │   │   │
@@ -246,29 +621,23 @@ agentour/
 ### 3.2 架构说明
 
 1. **上下文划分**：
-   - `accounts`: 处理用户认证和授权
-   - `agents`: 管理所有类型的 Agent
-   - `sessions`: 处理协作会话
-   - `artifacts`: 处理文档管理
+   - `agents`: 统一管理所有参与者（人类、AI、集体）
+   - `artifacts`: 统一管理所有协作对象（文档、会话、代码等）
+   - `auth`: 处理认证和授权
    - `plugins`: 处理插件系统
-
 2. **LiveView 结构**：
    - 所有实时交互功能都放在 `live/` 目录下
    - 按功能模块分类组织组件
-
 3. **Python 集成**：
    - Elixir 端提供 Python 调用接口
    - Python 代码放在 `priv/python` 目录
    - 支持 LLM 和机器学习功能
-
 4. **可扩展性考虑**：
    - `plugins` 目录预留用于未来的插件系统
    - 文档版本控制支持为未来的 IPFS 集成做准备
-
 5. **前端资源**：
    - 使用 Tailwind CSS 进行样式管理
    - 预留了未来集成 React 组件的空间
-
 6. **测试结构**：
    - 测试目录结构与源码目录结构保持一致
    - 包含单元测试和集成测试支持
@@ -331,3 +700,4 @@ class OpenAIClient:
 - 用户可以在Artifact的聊天流中，输入代码生成需求，Agent将根据需求生成代码，并更新Artifact
 - 用户还可以在Artifact中，以带可拖拽节点的Canvas形式，调整代码结构，并以全局视角查看所有参与编辑的Agent的修改
 
+每个场景都充分利用了系统的图结构特性，通过Artifact之间的关联构建知识网络，并通过多个Agent的协作来完成任务。

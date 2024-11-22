@@ -1,7 +1,6 @@
 defmodule AgentourWeb.AuthPlug do
   import Plug.Conn
   import Phoenix.Controller
-  alias AgentourWeb.Router.Helpers, as: Routes
   alias Agentour.Accounts
 
   def init(opts), do: opts
@@ -17,6 +16,7 @@ defmodule AgentourWeb.AuthPlug do
           nil -> 
             conn
             |> clear_session()
+            |> configure_session(drop: true)
             |> assign(:current_user, nil)
           user -> 
             assign(conn, :current_user, user)
@@ -33,5 +33,12 @@ defmodule AgentourWeb.AuthPlug do
       |> redirect(to: "/login")
       |> halt()
     end
+  end
+
+  def logout(conn) do
+    conn
+    |> clear_session()
+    |> configure_session(drop: true)
+    |> assign(:current_user, nil)
   end
 end

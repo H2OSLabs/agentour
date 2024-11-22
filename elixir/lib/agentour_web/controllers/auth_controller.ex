@@ -1,6 +1,7 @@
 defmodule AgentourWeb.AuthController do
   use AgentourWeb, :controller
   alias Agentour.Accounts
+  alias AgentourWeb.AuthPlug
 
   def register(conn, %{"user" => user_params}) do
     case Accounts.register_user(user_params) do
@@ -34,7 +35,8 @@ defmodule AgentourWeb.AuthController do
 
   def logout(conn, _params) do
     conn
-    |> configure_session(drop: true)
+    |> AuthPlug.logout()
+    |> put_flash(:info, "Logged out successfully.")
     |> redirect(to: "/login")
   end
 

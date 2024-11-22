@@ -85,14 +85,19 @@ defmodule AgentourWeb.AuthTest do
   end
 
   describe "login" do
-    setup do
+    setup %{conn: conn} do
       # Register a user first
       {:ok, view, _html} = live(build_conn(), ~p"/register")
       view
       |> form("#registration_form", user: @valid_attrs)
       |> render_submit()
 
-      :ok
+      conn = 
+        conn
+        |> init_test_session(%{})
+        |> fetch_flash()
+
+      {:ok, conn: conn}
     end
 
     test "renders login page", %{conn: conn} do
@@ -109,15 +114,21 @@ defmodule AgentourWeb.AuthTest do
 
       # Verify redirect
       assert redirected_to(conn) == "/sessions"
-      assert Phoenix.Flash.get(conn, :info) =~ "Welcome back!"
+      assert get_flash(conn, :info) =~ "Welcome back!"
 
       # Verify session
       assert get_session(conn, "current_user_id")
 
       # Follow redirect and verify protected page access
-      conn = get(recycle(conn), "/sessions")
+      conn = 
+        conn
+        |> recycle()
+        |> init_test_session(%{"current_user_id" => get_session(conn, "current_user_id")})
+        |> fetch_flash()
+        |> get("/sessions")
+
       assert html_response(conn, 200)
-      refute Phoenix.Flash.get(conn, :error)
+      refute get_flash(conn, :error)
     end
 
     test "unsuccessful login with wrong password", %{conn: conn} do
@@ -127,7 +138,7 @@ defmodule AgentourWeb.AuthTest do
       })
 
       assert redirected_to(conn) == "/login"
-      assert Phoenix.Flash.get(conn, :error) =~ "Invalid email or password"
+      assert get_flash(conn, :error) =~ "Invalid email or password"
       refute get_session(conn, "current_user_id")
     end
 
@@ -138,7 +149,7 @@ defmodule AgentourWeb.AuthTest do
       })
 
       assert redirected_to(conn) == "/login"
-      assert Phoenix.Flash.get(conn, :error) =~ "Invalid email or password"
+      assert get_flash(conn, :error) =~ "Invalid email or password"
       refute get_session(conn, "current_user_id")
     end
 
@@ -146,7 +157,7 @@ defmodule AgentourWeb.AuthTest do
       conn = get(conn, "/sessions")
       
       assert redirected_to(conn) == "/login"
-      assert Phoenix.Flash.get(conn, :error) =~ "You must log in"
+      assert get_flash(conn, :error) =~ "You must log in"
     end
 
     test "logout clears session and redirects", %{conn: conn} do
@@ -157,15 +168,25 @@ defmodule AgentourWeb.AuthTest do
       })
 
       # Then logout
-      conn = get(recycle(conn), ~p"/auth/logout")
+      conn = 
+        conn
+        |> recycle()
+        |> init_test_session(%{"current_user_id" => get_session(conn, "current_user_id")})
+        |> fetch_flash()
+        |> get(~p"/auth/logout")
 
       assert redirected_to(conn) == "/login"
       refute get_session(conn, "current_user_id")
 
       # Verify can't access protected pages after logout
-      conn = get(recycle(conn), "/sessions")
+      conn = 
+        conn
+        |> recycle()
+        |> fetch_flash()
+        |> get("/sessions")
+
       assert redirected_to(conn) == "/login"
-      assert Phoenix.Flash.get(conn, :error) =~ "You must log in"
+      assert get_flash(conn, :error) =~ "You must log in"
     end
 
     test "session persistence across requests", %{conn: conn} do
@@ -179,11 +200,23 @@ defmodule AgentourWeb.AuthTest do
       assert user_id
 
       # Access multiple protected pages with same session
-      conn = get(recycle(conn), "/sessions")
+      conn = 
+        conn
+        |> recycle()
+        |> init_test_session(%{"current_user_id" => user_id})
+        |> fetch_flash()
+        |> get("/sessions")
+
       assert html_response(conn, 200)
       assert get_session(conn, "current_user_id") == user_id
 
-      conn = get(recycle(conn), "/profile")
+      conn = 
+        conn
+        |> recycle()
+        |> init_test_session(%{"current_user_id" => user_id})
+        |> fetch_flash()
+        |> get("/profile")
+
       assert html_response(conn, 200)
       assert get_session(conn, "current_user_id") == user_id
     end

@@ -30,7 +30,7 @@ defmodule AgentourWeb.Auth.LoginLive do
         </:subtitle>
       </.header>
 
-      <.simple_form for={@form} id="login_form" action="/auth/login" method="post">
+      <.simple_form for={@form} id="login_form" phx-submit="login">
         <.input field={@form[:email]} type="email" label="Email" required />
         <.input field={@form[:password]} type="password" label="Password" required />
 
@@ -42,5 +42,21 @@ defmodule AgentourWeb.Auth.LoginLive do
       </.simple_form>
     </div>
     """
+  end
+
+  def handle_event("login", %{"email" => email, "password" => password}, socket) do
+    case Accounts.authenticate_user(email, password) do
+      {:ok, user} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Welcome back!")
+         |> redirect(to: ~p"/sessions")}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Invalid email or password")
+         |> assign(:form, to_form(%{"email" => email, "password" => ""}))}
+    end
   end
 end

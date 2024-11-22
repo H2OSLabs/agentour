@@ -6,12 +6,14 @@ defmodule Agentour.ArtifactsFixtures do
 
   import Agentour.AccountsFixtures
   import Agentour.SessionsFixtures
+  import Agentour.AgentsFixtures
 
   def unique_artifact_name, do: "test artifact #{System.unique_integer()}"
 
   def valid_artifact_attrs(attrs \\ %{}) do
     owner = attrs[:user] || user_fixture()
     session = session_fixture(%{owner: owner})
+    agent = agent_fixture(%{user: owner})
 
     Enum.into(attrs, %{
       name: unique_artifact_name(),
@@ -19,7 +21,7 @@ defmodule Agentour.ArtifactsFixtures do
       metadata: %{"key" => "value"},
       session_id: session.id,
       content: "test content",
-      creator_id: owner.id
+      creator_id: agent.id
     })
   end
 
