@@ -23,15 +23,18 @@ Agent 代表系统中的参与者，可以是人类用户、AI 或它们的组�
 """
 type Agent {
   id: ID!
-  type: AgentType!
+  type: AgentType!      # 只包含 HUMAN/MACHINE/COLLECTIVE
+  role: String         # 角色描述，如 "REVIEWER"/"EVALUATOR" 等
   name: String!
   metadata: JSON!
-  preferences: Artifact!     # 存储Agent偏好设置的Artifact
+  preferences: Artifact!
   capabilities: [Capability!]!
+  permissions: [Permission!]!  # Agent拥有的权限列表
   createdAt: DateTime!
   updatedAt: DateTime!
   parentAgent: Agent        # 如果是CollectiveAgent，指向父Agent
   childAgents: [Agent!]     # 如果是CollectiveAgent，包含子Agent列表
+  groups: [Group!]!         # 所属群组
 }
 
 """
@@ -67,27 +70,56 @@ type Artifact {
   createdAt: DateTime!
   updatedAt: DateTime!
   version: Int!
-  permissions: [Permission!]!
   type: String!           # Artifact类型，用于确定展示方式
   tags: [String!]!        # 用于分类和检索
+  template: Artifact      # 继承自哪个模板
+  components: [ArtifactComponent!]! # 组合的组件
+  accessControl: AccessControl! # 访问控制列表
 }
 
 """
-权限定义，支持继承和传播
+访问控制列表，定义资源的访问规则
+"""
+type AccessControl {
+  defaultAccess: AccessLevel! # 默认访问级别
+  ownerAccess: AccessLevel!  # 所有者访问级别
+  groupAccess: AccessLevel!  # 所属组访问级别
+  allowedAgents: [AgentAccess!]! # 特定Agent的访问权限
+  allowedGroups: [GroupAccess!]! # 特定Group的访问权限
+}
+
+"""
+Agent的访问权限配置
+"""
+type AgentAccess {
+  agentId: ID!
+  access: AccessLevel!
+}
+
+"""
+Group的访问权限配置
+"""
+type GroupAccess {
+  groupId: ID!
+  access: AccessLevel!
+}
+
+"""
+权限定义，描述Agent能进行的操作
 """
 type Permission {
-  agent: Agent!
   access: AccessLevel!
-  grantedAt: DateTime!
-  grantedBy: Agent!
-  inherited: Boolean!     # 是否是继承的权限
-  propagate: Boolean!    # 是否向下传播权限
+  target: ID!          # 目标资源ID（Artifact/Group）
+  targetType: String!  # 目标类型（ARTIFACT/GROUP）
+  metadata: JSON!      # 包含过期时间等额外信息
+  override: Boolean!   # 是否覆盖默认访问控制
 }
 
 enum AccessLevel {
-  READ
-  WRITE
-  ADMIN
+  NONE     # 无访问权限
+  READ     # 只读权限
+  WRITE    # 写入权限
+  ADMIN    # 管理权限
 }
 
 """
@@ -95,7 +127,7 @@ Artifact 的具体内容
 """
 type Content {
   rawContent: String!
-  shows: [Show!]!
+  shows: [Show!]!     # 展示方式只在Content级别定义
   version: Int!
   history: [ContentVersion!]!
 }
@@ -134,6 +166,59 @@ type Link {
   createdAt: DateTime!
   createdBy: Agent!
   bidirectional: Boolean! # 是否是双向关系
+}
+
+"""
+组定义
+"""
+type Group {
+  id: ID!
+  name: String!
+  description: String
+  members: [Agent!]!
+  permissions: [Permission!]!
+  parentGroup: Group     # 支持群组继承
+  childGroups: [Group!]
+  creator: Agent
+}
+
+"""
+组件定义
+"""
+type ArtifactComponent {
+  id: ID!
+  name: String!
+  type: String!
+  config: JSON!
+  artifactId: ID!    # 指向包含实际内容的Artifact
+  permissions: [Permission!]!
+}
+
+"""
+模板定义
+"""
+type ArtifactTemplate {
+  id: ID!
+  name: String!
+  description: String
+  baseType: String!  # 基础 Artifact 类型
+  components: [ComponentTemplate!]!
+  metadata: JSON!    # 默认元数据
+  schema: JSON!      # 内容模式定义
+  permissions: [Permission!]!
+  creator: Agent!
+}
+
+"""
+组件模板定义
+"""
+type ComponentTemplate {
+  id: ID!
+  name: String!
+  type: String!
+  defaultConfig: JSON!
+  schema: JSON!      # 组件内容模式
+  required: Boolean!
 }
 
 # 查询接口
@@ -268,6 +353,7 @@ input CreateArtifactInput {
   content: String!
   metadata: JSON
   shows: [ShowInput!]
+  template: ID
 }
 
 input UpdateArtifactInput {
@@ -294,6 +380,175 @@ input CreateLinkInput {
   type: String!
   metadata: JSON
 }
+
+### 插件系统配置格式
+
+插件系统使用`manifest.json`文件定义插件的基本信息、依赖关系和功能配置。以下是标准格式：
+
+```json
+{
+  "name": "example_plugin",
+  "version": "1.0.0",
+  "type": "agent|artifact|view",
+  "description": "Plugin description",
+  "author": "Author name",
+  "license": "MIT",
+  "dependencies": {
+    "elixir": {
+      "phoenix": "~> 1.7.0"
+    },
+    "python": {
+      "requirements": ["openai>=1.0.0"]
+    }
+  },
+  "capabilities": [{
+    "name": "capability_name",
+    "description": "Capability description",
+    "parameters": {
+      "param1": {
+        "type": "string",
+        "required": true,
+        "description": "Parameter description"
+      }
+    }
+  }],
+  "configuration": {
+    "setting1": {
+      "type": "string",
+      "default": "default_value",
+      "description": "Setting description"
+    }
+  },
+  "permissions": {
+    "required": ["READ_ARTIFACTS", "WRITE_CONTENT"]
+  }
+}
+```
+
+### 性能指标和限制
+
+系统在设计时考虑了以下性能指标和限制：
+
+- CollectiveAgent最大嵌套层级：5层
+- 权限传播最大深度：3层
+- 单个Artifact最大大小：100MB
+- 组件最大数量：50个/Artifact
+- 链接最大数量：1000个/Artifact
+
+### 数据迁移策略
+
+为了支持未来的去中心化改造，系统设计了以下迁移策略：
+
+1. **阶段性迁移**
+   - 第一阶段：元数据迁移到IPFS
+   - 第二阶段：内容迁移到IPFS
+   - 第三阶段：完全去中心化
+
+2. **兼容性保证**
+   - 保持双写期：同时写入中心化存储和IPFS
+   - 渐进式读取：优先从IPFS读取，失败时回退到中心化存储
+   - 版本管理：使用IPFS的内容寻址特性实现版本控制
+
+3. **数据一致性**
+   - 使用CID（Content Identifier）作为数据完整性校验
+   - 实现最终一致性模型
+   - 提供数据同步状态查询接口
+
+## 权限传播机制
+
+1. **Group 权限**：
+   - Agent 创建其他 Agent 时，新 Agent 自动加入创建者的默认组
+   - Group 权限会自动传播给所有组内成员
+   - 支持组的层级结构，权限可以向下继承
+   - 可以设置权限是否允许继承
+
+2. **Artifact 权限**：
+   - 创建者自动获得完全控制权
+   - 创建者所在组可以获得配置的默认权限
+   - 支持细粒度的组件级权限控制
+   - 基于模板创建的 Artifact 继承模板的默认权限配置
+
+## Artifact 模板系统
+
+1. **模板定义**：
+   - 预定义常用的 Artifact 类型（如 Session、Task、Document）
+   - 定义必需和可选的组件
+   - 指定默认的元数据和权限配置
+   - 提供内容和配置的模式验证
+
+2. **组件化**：
+   - Artifact 可以由多个可重用的组件组成
+   - 组件有自己的类型、配置和权限
+   - 支持动态添加和移除组件
+   - 组件间可以定义依赖关系
+
+3. **继承和组合**：
+   - 新的 Artifact 可以基于模板创建
+   - 可以组合多个组件形成复杂的 Artifact
+   - 支持覆盖模板的默认配置
+   - 保持对原始模板的引用，便于升级
+
+4. **示例模板**：
+
+```graphql
+# Session 模板
+{
+  "name": "Session",
+  "components": [
+    {
+      "type": "Chat",
+      "required": true,
+      "defaultConfig": {
+        "format": "markdown",
+        "enableCode": true
+      }
+    },
+    {
+      "type": "FileSystem",
+      "required": false,
+      "defaultConfig": {
+        "rootPath": "./workspace"
+      }
+    }
+  ],
+  "metadata": {
+    "icon": "chat",
+    "category": "collaboration"
+  },
+  "permissions": [
+    {
+      "scope": "GROUP",
+      "action": "READ",
+      "inheritance": true
+    }
+  ]
+}
+
+# Task 模板
+{
+  "name": "Task",
+  "components": [
+    {
+      "type": "Description",
+      "required": true
+    },
+    {
+      "type": "Status",
+      "required": true,
+      "defaultConfig": {
+        "states": ["TODO", "IN_PROGRESS", "DONE"]
+      }
+    },
+    {
+      "type": "Timeline",
+      "required": false
+    }
+  ],
+  "metadata": {
+    "icon": "task",
+    "category": "project"
+  }
+}
 ```
 
 ### 1.2 Elixir数据结构
@@ -308,10 +563,12 @@ defmodule Agent do
     metadata: map(),          # 元数据
     preferences: String.t(),  # 对应的preference artifact的id
     capabilities: [Capability.t()], # agent具备的能力列表
+    permissions: [Permission.t()], # agent拥有的权限列表
     created_at: DateTime.t(), # 创建时间
     updated_at: DateTime.t(), # 更新时间
     parent_agent: String.t(), # 如果是CollectiveAgent，指向父Agent的id
     child_agents: [String.t()] # 如果是CollectiveAgent，包含子Agent的id列表
+    groups: [Group.t()]       # 所属群组
   }
 end
 
@@ -338,9 +595,11 @@ defmodule Artifact do
     created_at: DateTime.t(), # 创建时间
     updated_at: DateTime.t(), # 更新时间
     version: integer(),      # 版本号
-    permissions: [Permission.t()], # 权限列表
     type: String.t(),        # Artifact类型，用于确定展示方式
     tags: [String.t()]       # 用于分类和检索
+    template: Artifact.t(),  # 继承自哪个模板
+    components: [ArtifactComponent.t()] # 组合的组件
+    accessControl: AccessControl.t() # 访问控制列表
   }
 end
 
@@ -388,12 +647,59 @@ end
 
 defmodule Permission do
   @type t :: %Permission{
-    agent: String.t(),       # agent id
     access: atom(),          # :read | :write | :admin
-    granted_at: DateTime.t(), # 授权时间
-    granted_by: String.t(),   # 授权者id
-    inherited: boolean(),    # 是否是继承的权限
-    propagate: boolean()     # 是否向下传播权限
+    target: String.t(),      # 目标资源ID（Artifact/Group）
+    targetType: String.t(),  # 目标类型（ARTIFACT/GROUP）
+    metadata: map()          # 包含过期时间等额外信息
+    override: boolean()      # 是否覆盖默认访问控制
+  }
+end
+
+defmodule Group do
+  @type t :: %Group{
+    id: String.t(),          # 全局唯一标识
+    name: String.t(),        # 名称
+    description: String.t(), # 描述
+    members: [Agent.t()],    # 成员列表
+    permissions: [Permission.t()], # 权限列表
+    parent_group: Group.t(), # 父群组
+    child_groups: [Group.t()], # 子群组列表
+    creator: Agent.t()       # 创建者
+  }
+end
+
+defmodule ArtifactComponent do
+  @type t :: %ArtifactComponent{
+    id: String.t(),          # 全局唯一标识
+    name: String.t(),        # 名称
+    type: String.t(),        # 类型
+    config: map(),           # 配置
+    artifactId: ID!    # 指向包含实际内容的Artifact
+    permissions: [Permission.t()] # 权限列表
+  }
+end
+
+defmodule AccessControl do
+  @type t :: %AccessControl{
+    defaultAccess: atom(),          # 默认访问级别
+    ownerAccess: atom(),  # 所有者访问级别
+    groupAccess: atom(),  # 所属组访问级别
+    allowedAgents: [AgentAccess.t()], # 特定Agent的访问权限
+    allowedGroups: [GroupAccess.t()] # 特定Group的访问权限
+  }
+end
+
+defmodule AgentAccess do
+  @type t :: %AgentAccess{
+    agentId: ID!
+    access: atom()
+  }
+end
+
+defmodule GroupAccess do
+  @type t :: %GroupAccess{
+    groupId: ID!
+    access: atom()
   }
 end
 ```
@@ -440,6 +746,151 @@ flowchart TD
     G --> I
     H --> I
     I --> J[结束]
+```
+
+## 权限管理机制
+
+系统采用双层权限管理机制，通过Artifact的访问控制列表(AccessControl)和Agent的特殊权限(Permission)来实现灵活且可控的权限管理。
+
+### 1. 访问控制列表 (AccessControl)
+
+每个Artifact都包含一个访问控制列表，定义了资源的基本访问规则：
+
+1. **默认访问级别** (defaultAccess)
+   - 定义所有Agent的基础访问权限
+   - 通常设置为NONE或READ
+   - 用于公开资源或完全私密资源
+
+2. **所有者权限** (ownerAccess)
+   - 创建Artifact的Agent的权限
+   - 通常设置为ADMIN
+   - 确保资源创建者有完全控制权
+
+3. **组权限** (groupAccess)
+   - 所属组成员的基本访问权限
+   - 用于团队协作场景
+   - 可以是READ或WRITE，通常不给予ADMIN权限
+
+4. **特定访问权限**
+   - allowedAgents：指定Agent的访问权限列表
+   - allowedGroups：指定Group的访问权限列表
+   - 用于细粒度的权限控制
+
+### 2. Agent特殊权限 (Permission)
+
+Agent可以持有特殊权限，用于覆盖访问控制列表中的默认规则：
+
+1. **权限覆盖** (override)
+   - 当override为true时，该权限优先于访问控制列表
+   - 用于临时授权或特殊场景
+
+2. **权限范围**
+   - target：目标资源ID
+   - targetType：ARTIFACT或GROUP
+   - 支持对特定资源或整个组的权限覆盖
+
+3. **元数据** (metadata)
+   - 存储额外的权限信息
+   - 可包含过期时间、授权原因等
+   - 支持审计和权限追踪
+
+### 3. 权限检查流程
+
+系统在处理访问请求时，按以下顺序检查权限：
+
+1. 检查Agent的特殊权限
+   - 如果存在override为true的权限，直接使用该权限级别
+   - 检查权限是否过期（通过metadata中的过期时间）
+
+2. 检查Artifact的访问控制列表
+   - 检查Agent是否是所有者
+   - 检查Agent是否在allowedAgents列表中
+   - 检查Agent所属组是否在allowedGroups列表中
+   - 检查Agent所属组的groupAccess
+   - 最后使用defaultAccess
+
+3. 权限级别（从低到高）
+   - NONE：无访问权限
+   - READ：只读权限
+   - WRITE：读写权限
+   - ADMIN：完全控制权限
+
+### 4. 最佳实践
+
+1. **默认安全原则**
+   - defaultAccess设置为NONE或READ
+   - 明确指定必要的权限
+   - 避免过度使用ADMIN权限
+
+2. **组权限管理**
+   - 优先使用组权限进行批量授权
+   - 为不同类型的协作设置适当的组权限级别
+   - 定期审查组权限设置
+
+3. **特殊权限使用**
+   - 仅在必要时使用override权限
+   - 为临时权限设置合理的过期时间
+   - 记录特殊权限的授权原因
+
+4. **权限审计**
+   - 定期检查过期权限
+   - 监控权限使用情况
+   - 维护权限变更日志
+
+### 5. 示例场景
+
+1. **公开只读文档**
+```graphql
+{
+  "accessControl": {
+    "defaultAccess": "READ",
+    "ownerAccess": "ADMIN",
+    "groupAccess": "READ",
+    "allowedAgents": [],
+    "allowedGroups": []
+  }
+}
+```
+
+2. **团队协作项目**
+```graphql
+{
+  "accessControl": {
+    "defaultAccess": "NONE",
+    "ownerAccess": "ADMIN",
+    "groupAccess": "WRITE",
+    "allowedAgents": [
+      {
+        "agentId": "reviewer_1",
+        "access": "WRITE"
+      }
+    ],
+    "allowedGroups": [
+      {
+        "groupId": "dev_team",
+        "access": "WRITE"
+      }
+    ]
+  }
+}
+```
+
+3. **临时访问权限**
+```graphql
+{
+  "permissions": [
+    {
+      "access": "WRITE",
+      "target": "artifact_123",
+      "targetType": "ARTIFACT",
+      "override": true,
+      "metadata": {
+        "expiresAt": "2024-02-01T00:00:00Z",
+        "reason": "Code review access"
+      }
+    }
+  ]
+}
 ```
 
 ## 2. 项目选型
@@ -525,7 +976,6 @@ agentour/
 │   │   │   ├── content.ex  # 内容管理
 │   │   │   ├── version.ex  # 版本控制
 │   │   │   ├── link.ex     # 关系管理
-│   │   │   ├── show.ex     # 展示方式
 │   │   │   └── permission.ex # 权限管理
 │   │   │
 │   │   ├── auth/           # 认证相关上下文
@@ -642,7 +1092,286 @@ agentour/
    - 测试目录结构与源码目录结构保持一致
    - 包含单元测试和集成测试支持
 
-## 4.Python 集成示例
+## 使用案例
+
+下面，我们通过一些典型的使用场景来展示Agentour的核心特性。每个场景都展示了：
+1. 统一的 Agent 和 Artifact 概念
+2. 基于组的权限管理
+3. 灵活的模板系统
+4. 图结构的知识组织
+5. 组件化的功能扩展
+
+通过这些示例，我们可以看到核心数据结构如何通过 metadata 和 components 灵活支持不同场景的需求，同时保持概念的一致性和系统的可扩展性。
+
+### AI安全评测系统
+
+#### 系统流程
+1. **团队组建**：创建安全评测组（Red Team）作为 CollectiveAgent，包含人类审核者和AI评测者
+2. **评测初始化**：基于评测模板创建根评测 Artifact，包含评测标准和流程
+3. **评测执行**：
+   - 为每个被评测 Agent 创建子 Artifact，自动继承评测团队的权限
+   - AI评测者根据模板自动生成评测项，并通过图结构关联相关证据
+   - 被评测 Agent 进入评测Artifact，响应评测并更新/编辑对应节点
+4. **结果分析**：评测结果以图的形式展示，便于追踪和分析
+5. **反馈优化**：人类审核者的反馈通过权限传播影响整个评测团队
+
+#### 数据结构示例
+```graphql
+# Red Team 作为 CollectiveAgent
+{
+  "type": "COLLECTIVE",
+  "name": "Red Team",
+  "metadata": {
+    "teamType": "SECURITY_EVALUATION",
+    "evaluationScope": ["SAFETY", "ETHICS", "PERFORMANCE"]
+  },
+  "childAgents": [
+    {
+      "type": "HUMAN",
+      "role": "REVIEWER"
+    },
+    {
+      "type": "MACHINE",
+      "role": "EVALUATOR",
+      "capabilities": ["SAFETY_TEST", "BEHAVIOR_ANALYSIS"]
+    }
+  ]
+}
+
+# 评测 Artifact
+{
+  "type": "ARTIFACT",
+  "metadata": {
+    "artifactType": "EVALUATION",
+    "status": "IN_PROGRESS",
+    "workflow": {
+      "currentStage": "TESTING",
+      "nextStage": "REVIEW"
+    }
+  },
+  "components": [
+    {
+      "type": "EVALUATION_CRITERIA",
+      "content": {
+        "criteria": [...],
+        "weights": {...}
+      }
+    },
+    {
+      "type": "EVIDENCE_COLLECTOR",
+      "content": {
+        "evidenceLinks": [...]
+      }
+    }
+  ]
+}
+```
+
+#### 典型用户旅程
+1. **评测团队负责人**：
+   - 创建评测团队
+   - 设置评测标准和流程
+   - 分配评测任务
+   - 审核最终结果
+2. **AI评测者**：
+   - 接收评测任务
+   - 执行自动化测试
+   - 收集评测证据
+   - 生成评测报告
+3. **人类审核者**：
+   - 审查AI评测结果
+   - 提供专业意见
+   - 确认评测结论
+4. **被评测Agent**：
+   - 接受评测任务
+   - 完成测试项目
+   - 提供必要说明
+   - 接收评测反馈
+
+### 虚拟人社区
+
+#### 系统流程
+1. **社区初始化**：创建职场社区组（Professional Community），定义基本访问权限
+2. **身份创建**：
+   - 用户创建个人 Agent 作为数字身份，自动加入社区组
+   - 创建个人资料 Artifact，支持多种展示方式
+3. **人格扩展**：用户创建和管理多个关联 Agent
+   - 专业人格 Agent：基于用户经验训练的AI，代表特定领域专业技能
+   - 宠物 Agent：增进社交互动的个性化助手
+4. **社交网络构建**：通过图结构建立多维度关系
+   - 专业技能（技能树形式的 Artifact）
+   - 项目经历（关联的项目 Artifact）
+   - 社交关系（Agent 和其专业人格间的连接）
+5. **互动协作**：
+   - 专业人格独立参与项目
+   - AI助手协助管理多重身份
+   - 基于图结构的智能推荐
+
+#### 数据结构示例
+```graphql
+# 专业人格作为 MACHINE 类型的 Agent
+{
+  "type": "MACHINE",
+  "name": "Tech Expert",
+  "metadata": {
+    "personaType": "PROFESSIONAL",
+    "domain": "SOFTWARE_ENGINEERING",
+    "trainingSource": "user_123",  # 基于哪个用户的经验训练
+    "specialties": ["PYTHON", "DISTRIBUTED_SYSTEMS"]
+  },
+  "capabilities": ["CODE_REVIEW", "ARCHITECTURE_DESIGN"],
+  "parentAgent": "user_123"  # 关联到创建者
+}
+
+# 个人档案作为 Artifact
+{
+  "type": "ARTIFACT",
+  "metadata": {
+    "artifactType": "PROFILE",
+    "visibility": "PUBLIC",
+    "lastActive": "2024-01-20T10:00:00Z"
+  },
+  "components": [
+    {
+      "type": "SKILL_PORTFOLIO",
+      "content": {
+        "skills": [...],
+        "endorsements": [...]
+      }
+    },
+    {
+      "type": "SOCIAL_NETWORK",
+      "content": {
+        "connections": [...],
+        "interactions": [...]
+      }
+    }
+  ]
+}
+```
+
+#### 典型用户旅程
+1. **新用户**：
+   - 创建个人账户
+   - 完善个人资料
+   - 建立初始社交圈
+   - 探索社区功能
+2. **专业用户**：
+   - 创建专业人格
+   - 参与项目协作
+   - 建立专业网络
+   - 获取技能认可
+3. **团队管理者**：
+   - 组建项目团队
+   - 分配任务角色
+   - 监督项目进展
+   - 评估团队表现
+4. **AI助手**：
+   - 管理用户日程
+   - 提供专业建议
+   - 促进社交互动
+   - 协助内容创作
+
+### 协作开发平台
+
+#### 系统流程
+1. **团队构建**：创建开发团队组（Dev Team），包含人类开发者和AI助手
+2. **项目初始化**：使用预定义的开发模板创建项目 Artifact，包含：
+   - 文档组件
+   - 代码仓库组件
+   - 任务看板组件
+3. **协作管理**：通过图结构管理各种关系
+   - 代码依赖关系
+   - 任务关联
+   - 文档引用
+4. **AI辅助**：AI助手自动继承团队权限，协助：
+   - 代码审查
+   - 文档更新
+   - 依赖分析
+5. **知识积累**：支持基于现有项目创建新模板，促进最佳实践
+
+#### 数据结构示例
+```graphql
+# 开发团队作为 CollectiveAgent
+{
+  "type": "COLLECTIVE",
+  "name": "Dev Team",
+  "metadata": {
+    "teamType": "DEVELOPMENT",
+    "projectScope": "FULL_STACK"
+  },
+  "childAgents": [
+    {
+      "type": "HUMAN",
+      "role": "DEVELOPER"
+    },
+    {
+      "type": "MACHINE",
+      "role": "ASSISTANT",
+      "capabilities": ["CODE_REVIEW", "DOC_GENERATION"]
+    }
+  ]
+}
+
+# 项目作为 Artifact
+{
+  "type": "ARTIFACT",
+  "metadata": {
+    "artifactType": "PROJECT",
+    "status": "ACTIVE",
+    "repository": {
+      "url": "...",
+      "branch": "main"
+    }
+  },
+  "components": [
+    {
+      "type": "DOCUMENTATION",
+      "content": {...}
+    },
+    {
+      "type": "CODE_REPOSITORY",
+      "content": {...}
+    },
+    {
+      "type": "KANBAN_BOARD",
+      "content": {
+        "columns": ["TODO", "IN_PROGRESS", "REVIEW", "DONE"],
+        "tasks": [...]
+      }
+    }
+  ]
+}
+```
+
+#### 典型用户旅程
+1. **项目经理**：
+   - 创建项目团队
+   - 设置项目模板
+   - 分配开发任务
+   - 监控项目进度
+2. **开发人员**：
+   - 领取开发任务
+   - 提交代码更新
+   - 参与代码审查
+   - 更新项目文档
+3. **AI助手**：
+   - 执行代码审查
+   - 生成技术文档
+   - 分析代码质量
+   - 提供优化建议
+4. **新团队成员**：
+   - 加入项目团队
+   - 学习项目规范
+   - 获取AI辅导
+   - 逐步承担任务
+
+
+## 4. 与其它语言交互
+
+Agentour中的elixir部分是核心，对于该核心而言，python与它的交互和它与人类的交互是类似的。
+
+### Python 集成示例
 
 ```elixir
 # lib/agentour/python/api/llm.ex
@@ -671,33 +1400,3 @@ class OpenAIClient:
         )
         return response.choices[0].message.content
 ```
-
-## 使用案例
-### AI安全评测应用
-- 用户创建一个安全评测Session，邀请或创建待安全评测/安全审计的Agent参与
-- 用户在Session中首先创建一个Artifact，例如一个文本文件，作为评测流程的一个模板，例如一个Table，第一栏侧是评测问题，第二栏是被安全评测的Agent的输出结果，第三栏是评测Agent的评价结果
-- 评测Agent会在第一栏评测问题中填入需要审计的安全问题，并提醒待评测Agent填写
-- 待评测Agent填写完毕后，评测Agent会根据第三栏的评测结果，给出评价
-- 评测结果完成后，评测Agent会提醒创建的人类用户给出反馈，并更新Artifact
-- 评测Agent会根据反馈更新评测结果，并提醒待评测Agent进行调整
-- 重复上述流程，直到评测Agent完成对所有待评测Agent的评测为止
-
-### 电子名片与虚拟人社区
-- 用户创建一个虚拟人社区Session
-- 用户为自己创建一个名片Agent，作为自己在该Session中的代理
-- 用户与名片Agent协作，编辑名片信息
-- 用户还可以创建附属Agent的名片Agent，包括：
-  - 宠物
-  - 人格，可以代表自己某项爱好或专业技能
-- 名片Agent可以代表用户，在Session中与其它名片Agent协作，以共同编辑Artifacts的形式共同完成某项任务
-- Session中的其他用户可以查看开放的Artifacts，其所属的名片Agent会将其以适合用户的格式展示
-
-### 代码生成与协作
-- 用户创建一个代码生成Session
-- 用户创建一个Artifact，并设置好设计文档、项目架构、代码风格、代码规范等内容，作为代码生成的模板
-- 用户创建或邀请一批代码生成Agent参与Artifacts的协作编辑
-- 代码生成Agent将根据设计文档、项目架构、代码风格、代码规范等内容，生成代码
-- 用户可以在Artifact的聊天流中，输入代码生成需求，Agent将根据需求生成代码，并更新Artifact
-- 用户还可以在Artifact中，以带可拖拽节点的Canvas形式，调整代码结构，并以全局视角查看所有参与编辑的Agent的修改
-
-每个场景都充分利用了系统的图结构特性，通过Artifact之间的关联构建知识网络，并通过多个Agent的协作来完成任务。
